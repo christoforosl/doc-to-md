@@ -7,7 +7,7 @@ Pipeline: mammoth (.docx → HTML) → turndown (HTML → Markdown) → post-pro
 - Headings come from Word heading styles and are numbered in code (`1.`, `1.1`, `1.1.1`).
 - Tables are converted to Markdown tables (first row becomes the header).
 - Cover page + TOC are dropped when the document has a Word TOC (disable with `--drop-toc false`).
-- Sections listed in `OMITTED_SECTIONS` (`src/index.ts`) are dropped: Έλεγχος Εγγράφου, Ιστορικό Αλλαγών, Ανασκόπηση, Διανομή.
+- Sections listed in `--omit-sections` are dropped by heading (none by default).
 - Images are replaced with an `*[image]*` marker.
 
 > **Note:** Headings are only detected when the document uses Word heading styles (Heading 1/2/3). Bold text styled as a heading by hand stays bold text.
@@ -46,3 +46,4 @@ Each .docx produces a `.md` file with the same base name in the output directory
 | `--dir <path>` | — | Process all .docx files in a directory |
 | `--output-dir <path>` | source file's folder | Directory to write `.md` files |
 | `--drop-toc <true\|false>` | `true` | Drop the cover page + Word TOC (content before the first heading) |
+| `--omit-sections "<A,B>"` | `""` (none) | Comma-separated headings to drop, with everything under them. Substring match: `Appendix` drops every heading containing it |

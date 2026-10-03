@@ -6,13 +6,10 @@ import TurndownService from "turndown";
 // ─── Word → Markdown ──────────────────────────────────────────────────────────
 // mammoth → HTML (keeps Word heading styles and tables) → turndown → Markdown.
 
-// Sections dropped from the output, matched against heading text
-const OMITTED_SECTIONS = ["Έλεγχος Εγγράφου", "Ιστορικό Αλλαγών", "Ανασκόπηση", "Διανομή"];
-
-async function readDocx(filePath: string, dropToc: boolean): Promise<string> {
+async function readDocx(filePath: string, dropToc: boolean, omitted: string[]): Promise<string> {
     const result = await mammoth.convertToHtml({ path: filePath });
     const markdown = buildTurndown().turndown(result.value);
-    return numberHeadings(omitSections(markdown, dropToc));
+    return numberHeadings(omitSections(markdown, dropToc, omitted));
 }
 
 // Minimal shape of the DOM nodes turndown hands to rules (tsconfig has no DOM lib)
@@ -79,10 +76,10 @@ function rowCells(td: TurndownService, row: DomNode): string[] {
     return cells;
 }
 
-// Drops every section whose heading matches OMITTED_SECTIONS, down to the next heading
+// Drops every section whose heading contains one of `omitted`, down to the next heading
 // of equal or higher level. Content before the first heading is dropped only when it
 // contains a Word TOC (cover page + TOC) and dropToc is set; documents without headings are kept whole.
-function omitSections(markdown: string, dropToc: boolean): string {
+function omitSections(markdown: string, dropToc: boolean, omitted: string[]): string {
     const preamble: string[] = [];
     const out: string[] = [];
     let skipUntilLevel = 0; // 0 = not skipping
@@ -94,7 +91,7 @@ function omitSections(markdown: string, dropToc: boolean): string {
             const level = heading[1].length;
             seenHeading = true;
             if (skipUntilLevel && level > skipUntilLevel) continue;
-            skipUntilLevel = OMITTED_SECTIONS.some((s) => heading[2].includes(s)) ? level : 0;
+            skipUntilLevel = omitted.some((s) => heading[2].includes(s)) ? level : 0;
             if (skipUntilLevel) continue;
         }
         if (!seenHeading) preamble.push(line);
@@ -162,7 +159,7 @@ function outputPath(filePath: string, outputDir: string): string {
 
 function parseFlag(args: string[], flag: string): string | undefined {
     const idx = args.indexOf(flag);
-    if (idx !== -1 && args[idx + 1]) {
+    if (idx !== -1 && args[idx + 1] !== undefined) {
         const value = args[idx + 1];
         args.splice(idx, 2);
         return value;
@@ -180,14 +177,17 @@ async function main(): Promise<void> {
         process.exit(1);
     }
     const dropToc = dropTocArg === "true";
+    const omitArg = parseFlag(args, "--omit-sections");
+    // Sections dropped from the output, matched against heading text; none by default
+    const omitted = (omitArg ?? "").split(",").map((s) => s.trim()).filter((s) => s !== "");
     const dir = parseFlag(args, "--dir");
     if (dir) args.push(dir);
 
     if (args.length === 0) {
         console.error(
             "Usage:\n" +
-            "  ts-node src/index.ts <file.docx> [file2.docx ...] [--output-dir ./output] [--drop-toc true|false]\n" +
-            "  ts-node src/index.ts --dir <directory> [--output-dir ./output] [--drop-toc true|false]"
+            "  ts-node src/index.ts <file.docx> [file2.docx ...] [--output-dir ./output] [--drop-toc true|false] [--omit-sections \"A,B\"]\n" +
+            "  ts-node src/index.ts --dir <directory> [--output-dir ./output] [--drop-toc true|false] [--omit-sections \"A,B\"]"
         );
         process.exit(1);
     }
@@ -203,7 +203,7 @@ async function main(): Promise<void> {
     for (const file of files) {
         process.stdout.write(`  → ${path.basename(file)} ... `);
         try {
-            const markdown = await readDocx(file, dropToc);
+            const markdown = await readDocx(file, dropToc, omitted);
             const outFile = outputPath(file, outputDir ?? path.dirname(file));
             fs.writeFileSync(outFile, markdown, "utf-8");
             console.log(`saved → ${outFile}`);
