@@ -9,10 +9,10 @@ import TurndownService from "turndown";
 // Sections dropped from the output, matched against heading text
 const OMITTED_SECTIONS = ["Έλεγχος Εγγράφου", "Ιστορικό Αλλαγών", "Ανασκόπηση", "Διανομή"];
 
-async function readDocx(filePath: string): Promise<string> {
+async function readDocx(filePath: string, dropToc: boolean): Promise<string> {
     const result = await mammoth.convertToHtml({ path: filePath });
     const markdown = buildTurndown().turndown(result.value);
-    return numberHeadings(omitSections(markdown));
+    return numberHeadings(omitSections(markdown, dropToc));
 }
 
 // Minimal shape of the DOM nodes turndown hands to rules (tsconfig has no DOM lib)
@@ -81,8 +81,8 @@ function rowCells(td: TurndownService, row: DomNode): string[] {
 
 // Drops every section whose heading matches OMITTED_SECTIONS, down to the next heading
 // of equal or higher level. Content before the first heading is dropped only when it
-// contains a Word TOC (cover page + TOC); documents without headings are kept whole.
-function omitSections(markdown: string): string {
+// contains a Word TOC (cover page + TOC) and dropToc is set; documents without headings are kept whole.
+function omitSections(markdown: string, dropToc: boolean): string {
     const preamble: string[] = [];
     const out: string[] = [];
     let skipUntilLevel = 0; // 0 = not skipping
@@ -101,7 +101,7 @@ function omitSections(markdown: string): string {
         else if (!skipUntilLevel) out.push(line);
     }
 
-    const hasToc = preamble.some((l) => l.includes("](#_Toc"));
+    const hasToc = dropToc && preamble.some((l) => l.includes("](#_Toc"));
     return [...(hasToc ? [] : preamble), ...out].join("\n").trim() + "\n";
 }
 
@@ -174,14 +174,20 @@ async function main(): Promise<void> {
     const args = process.argv.slice(2);
 
     const outputDir = parseFlag(args, "--output-dir");
+    const dropTocArg = parseFlag(args, "--drop-toc") ?? "true";
+    if (!["true", "false"].includes(dropTocArg)) {
+        console.error(`--drop-toc expects true or false, got: ${dropTocArg}`);
+        process.exit(1);
+    }
+    const dropToc = dropTocArg === "true";
     const dir = parseFlag(args, "--dir");
     if (dir) args.push(dir);
 
     if (args.length === 0) {
         console.error(
             "Usage:\n" +
-            "  ts-node src/index.ts <file.docx> [file2.docx ...] [--output-dir ./output]\n" +
-            "  ts-node src/index.ts --dir <directory> [--output-dir ./output]"
+            "  ts-node src/index.ts <file.docx> [file2.docx ...] [--output-dir ./output] [--drop-toc true|false]\n" +
+            "  ts-node src/index.ts --dir <directory> [--output-dir ./output] [--drop-toc true|false]"
         );
         process.exit(1);
     }
@@ -197,7 +203,7 @@ async function main(): Promise<void> {
     for (const file of files) {
         process.stdout.write(`  → ${path.basename(file)} ... `);
         try {
-            const markdown = await readDocx(file);
+            const markdown = await readDocx(file, dropToc);
             const outFile = outputPath(file, outputDir ?? path.dirname(file));
             fs.writeFileSync(outFile, markdown, "utf-8");
             console.log(`saved → ${outFile}`);
